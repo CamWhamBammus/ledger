@@ -1,0 +1,93 @@
+// Ledger — local-first budget & expense tracker.
+// SQLite database, same "one file under Application Support" pattern as
+// the rest of the cabin's apps.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+enum TransactionType {
+  INCOME
+  EXPENSE
+}
+
+enum Repeat {
+  NONE
+  WEEKLY
+  MONTHLY
+  YEARLY
+}
+
+enum AccountType {
+  CHECKING
+  SAVINGS
+  CREDIT
+  CASH
+  OTHER
+}
+
+model Category {
+  id            String  @id @default(cuid())
+  name          String
+  color         String
+  budgetMonthly Float?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  transactions Transaction[]
+}
+
+// Balances are always computed live from transactions (startingBalance +
+// paid income - paid expense), never stored — same "derive, don't cache"
+// approach as every other total in this app.
+model Account {
+  id              String      @id @default(cuid())
+  name            String
+  type            AccountType
+  color           String
+  startingBalance Float       @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  transactions Transaction[]
+}
+
+// `date` is a pure day key (midnight local), same convention as Almanac's
+// Event/Task. Completing a repeating transaction (`paid: true`) leaves this
+// row as history and spawns the next occurrence with `date` advanced —
+// same pattern as Almanac's Task.repeat.
+model Transaction {
+  id          String           @id @default(cuid())
+  description String
+  amount      Float
+  type        TransactionType
+  date        DateTime
+
+  notes  String?
+  paid   Boolean @default(true)
+  repeat Repeat  @default(NONE)
+
+  categoryId String?
+  category   Category? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+
+  // Every transaction always belongs to a real account — unlike Category,
+  // there's no SetNull here; api/accounts/[id]/route.ts blocks deleting an
+  // account that still has transactions instead of orphaning them.
+  accountId String
+  account   Account @relation(fields: [accountId], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([date])
+  @@index([type])
+  @@index([paid])
+  @@index([accountId])
+}
